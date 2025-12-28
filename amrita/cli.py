@@ -351,10 +351,10 @@ def success(message: str):
 
 def is_in_venv(fail_then_throw: bool = False) -> bool:
     """综合检查虚拟环境"""
-    if (
-        "AMRITA_IGNORE_VENV" in os.environ
-        and os.environ["AMRITA_IGNORE_VENV"].lower() == "true"
-    ):
+    ignore_venv = os.environ.get("MINIAGENT_IGNORE_VENV") or os.environ.get(
+        "AMRITA_IGNORE_VENV"
+    )
+    if ignore_venv and ignore_venv.lower() == "true":
         click.echo(
             warning("虚拟环境检查已被禁用。这通常不是推荐做法，但如您所愿，这将继续。")
         )
