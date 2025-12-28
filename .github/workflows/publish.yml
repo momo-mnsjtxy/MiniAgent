@@ -38,7 +38,7 @@ jobs:
           
           # 判断是否为预发布版本，添加--pre标记（PyPI会识别为预发布包）
           if [[ "${{ github.event.inputs.isPreRelease || github.event.release.prerelease }}" == "true" ]]; then
-            uv publish --token ${{ secrets.PYPI_API_TOKEN }} --pre
+            uv publish --token ${{ secrets.PYPI_API_TOKEN }} 
           else
             uv publish --token ${{ secrets.PYPI_API_TOKEN }}
           fi
