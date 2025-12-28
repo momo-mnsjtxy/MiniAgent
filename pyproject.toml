@@ -1,5 +1,5 @@
 [project]
-name = "miniagent-mas"
+name = "miniagent"
 version = "0.5.0"
 description = "MiniAgent: an AI bot framework powered by NoneBot2 (based on Amrita)"
 readme = "README.md"
