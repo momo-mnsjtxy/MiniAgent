@@ -48,7 +48,7 @@ class Pyproject(BaseModel):
     description: str = ""
     version: str = "0.1.0"
     dependencies: list[str] = Field(
-        default_factory=lambda: [f"miniagent[full]>={get_amrita_version()}"]
+        default_factory=lambda: [f"amrita-ministudio[full]>={get_amrita_version()}"]
     )
     readme: str = "README.md"
     requires_python: str = Field(default=">=3.10, <3.14", alias="requires-python")

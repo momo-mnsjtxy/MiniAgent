@@ -1,5 +1,5 @@
 [project]
-name = "miniagent"
+name = "amrita-ministudio"
 version = "0.5.0"
 description = "MiniAgent: an AI bot framework powered by NoneBot2 (based on Amrita)"
 readme = "README.md"
@@ -69,14 +69,14 @@ dev-dependencies = [
     "ruff>=0.12.8",
     "nonebot-plugin-orm[default]>=0.8.2",
     "pytest>=8.4.1",
-    "miniagent[full]",
+    "amrita-ministudio[full]",
     "mcp>=1.21.1",
     "pyright>=1.1.407",
 ]
 package = true
 
 [tool.uv.sources]
-miniagent = { workspace = true }
+amrita-ministudio = { workspace = true }
 
 [tool.ruff]
 line-length = 88
