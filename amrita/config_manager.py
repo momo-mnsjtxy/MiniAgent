@@ -1,6 +1,8 @@
 import asyncio
+import threading
 from abc import ABC
-from asyncio import Lock, Task
+from asyncio import Lock as AsyncLock
+from asyncio import Task
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from io import StringIO
@@ -22,12 +24,28 @@ FILTER_TYPE = Callable[[watchfiles.main.FileChange], bool]
 
 # 性能优化: 使用__slots__减少内存占用
 class _ConfigManagerStats:
-    __slots__ = ("cache_hits", "cache_misses", "reload_count")
+    __slots__ = ("_lock", "cache_hits", "cache_misses", "reload_count")
 
     def __init__(self):
         self.cache_hits = 0
         self.cache_misses = 0
         self.reload_count = 0
+        self._lock = threading.Lock()
+
+    def record_cache_hit(self) -> None:
+        """Thread-safe cache hit recording"""
+        with self._lock:
+            self.cache_hits += 1
+
+    def record_cache_miss(self) -> None:
+        """Thread-safe cache miss recording"""
+        with self._lock:
+            self.cache_misses += 1
+
+    def record_reload(self) -> None:
+        """Thread-safe reload recording"""
+        with self._lock:
+            self.reload_count += 1
 
 
 class BaseDataManager(ABC, Generic[T]):
@@ -150,8 +168,8 @@ class UniConfigManager(Generic[T]):
     """
 
     _instance = None
-    _lock: defaultdict[str, Lock]
-    _callback_lock: defaultdict[str, Lock]
+    _lock: defaultdict[str, AsyncLock]
+    _callback_lock: defaultdict[str, AsyncLock]
     _file_callback_map: dict[Path, CALLBACK_TYPE]
     _config_classes: dict[str, type[T]]
     _config_classes_id_to_config: dict[
@@ -177,8 +195,8 @@ class UniConfigManager(Generic[T]):
             cls._config_other_files = defaultdict(set)
             cls._config_instances = {}
             cls._config_directories = defaultdict(set)
-            cls._lock = defaultdict(Lock)
-            cls._callback_lock = defaultdict(Lock)
+            cls._lock = defaultdict(AsyncLock)
+            cls._callback_lock = defaultdict(AsyncLock)
             cls._config_file_cache = {}
             cls._config_classes_id_to_config = {}
             cls._tasks = []
@@ -358,9 +376,9 @@ class UniConfigManager(Generic[T]):
         """
         plugin_name = plugin_name or _try_get_caller_plugin().name
         if plugin_name in self._config_instances:
-            self._stats.cache_hits += 1  # 性能统计: 缓存命中
+            self._stats.record_cache_hit()  # 性能统计: 缓存命中
         else:
-            self._stats.cache_misses += 1  # 性能统计: 缓存未命中
+            self._stats.record_cache_miss()  # 性能统计: 缓存未命中
         return self._config_instances.get(
             plugin_name
         ) or await self._get_config_by_file(plugin_name)

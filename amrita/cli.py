@@ -9,7 +9,6 @@ import os
 import signal
 import subprocess
 import sys
-import weakref
 from logging import warning
 from typing import Any
 
@@ -22,8 +21,29 @@ from packaging import version
 from amrita.utils.dependencies import self_check_optional_dependency
 from amrita.utils.utils import get_amrita_version
 
-# 全局变量用于跟踪子进程 - 使用weakref避免内存泄漏
-_subprocesses: weakref.WeakSet[subprocess.Popen] = weakref.WeakSet()
+# 全局变量用于跟踪子进程
+_subprocesses: list[subprocess.Popen] = []
+
+
+def _add_subprocess(proc: subprocess.Popen) -> None:
+    """Add subprocess to tracking list"""
+    _subprocesses.append(proc)
+
+
+def _remove_subprocess(proc: subprocess.Popen) -> None:
+    """Remove specific subprocess from tracking list"""
+    try:
+        _subprocesses.remove(proc)
+    except ValueError:
+        # Process already removed
+        pass
+
+
+def _cleanup_finished_processes() -> None:
+    """Remove finished processes from tracking list to prevent memory leaks"""
+    global _subprocesses
+    # Build new list with only active processes (avoids try-except in loop)
+    _subprocesses = [p for p in _subprocesses if p.poll() is None]
 
 
 def get_package_metadata(package_name: str) -> dict[str, Any] | None:
@@ -46,25 +66,37 @@ def get_package_metadata(package_name: str) -> dict[str, Any] | None:
 
 
 def should_update() -> tuple[bool, str]:
+    """检查是否有可用的更新
+
+    Returns:
+        tuple[bool, str]: (是否需要更新, 最新版本或当前版本)
+    """
     for dist_name in ("minichatagent", "miniagent", "amrita"):
-        if metadata := get_package_metadata(dist_name):
-            if metadata["releases"] != {}:
-                latest_version = max(
-                    list(metadata["releases"].keys()), key=version.parse
-                )
-                if version.parse(latest_version) > version.parse(get_amrita_version()):
-                    return True, latest_version
+        metadata = get_package_metadata(dist_name)
+        if metadata and metadata.get("releases"):
+            # 获取所有版本并找到最新的
+            versions = list(metadata["releases"].keys())
+            if not versions:
+                continue
 
-            click.echo(
-                success(
-                    "主环境 MiniAgent 已是最新版本。"
-                    if not IS_IN_VENV
-                    else "虚拟环境 MiniAgent 已是最新版本。"
-                )
-            )
-            return False, get_amrita_version()  # 修复: 直接在成功检查后返回
+            latest_version = max(versions, key=version.parse)
+            current_version = get_amrita_version()
 
-    # 如果所有包检查都失败，返回当前版本
+            # 检查是否需要更新
+            if version.parse(latest_version) > version.parse(current_version):
+                return True, latest_version
+            else:
+                # 已是最新版本
+                click.echo(
+                    success(
+                        "主环境 MiniAgent 已是最新版本。"
+                        if not IS_IN_VENV
+                        else "虚拟环境 MiniAgent 已是最新版本。"
+                    )
+                )
+                return False, current_version
+
+    # 如果无法获取任何包的元数据，返回当前版本
     return False, get_amrita_version()
 
 
@@ -93,7 +125,7 @@ def run_proc(
         stdin=stdin,
         **kwargs,
     )
-    _subprocesses.add(proc)
+    _add_subprocess(proc)
     try:
         return_code = proc.wait()
         if return_code != 0:
@@ -104,8 +136,8 @@ def run_proc(
         _cleanup_subprocesses()
         sys.exit(0)
     finally:
-        # WeakSet handles cleanup automatically
-        pass
+        # Explicitly remove finished processes for deterministic cleanup
+        _cleanup_finished_processes()
 
 
 def stdout_run_proc(cmd: list[str]):
@@ -126,7 +158,7 @@ def stdout_run_proc(cmd: list[str]):
         stderr=subprocess.PIPE,
     )
     stdout, _ = proc.communicate()
-    _subprocesses.add(proc)
+    _add_subprocess(proc)
     try:
         return_code = proc.wait()
         if return_code != 0:
@@ -135,8 +167,8 @@ def stdout_run_proc(cmd: list[str]):
         _cleanup_subprocesses()
         sys.exit(0)
     finally:
-        # WeakSet handles cleanup automatically
-        pass
+        # Explicitly remove finished processes for deterministic cleanup
+        _cleanup_finished_processes()
     return stdout.decode("utf-8")
 
 
@@ -248,7 +280,7 @@ def install_optional_dependency() -> bool:
             stdout=sys.stdout,
             stderr=sys.stderr,
         )
-        _subprocesses.add(proc)
+        _add_subprocess(proc)
         try:
             return_code = proc.wait()
             if return_code != 0:
@@ -260,8 +292,8 @@ def install_optional_dependency() -> bool:
             _cleanup_subprocesses()
             sys.exit(0)
         finally:
-            # WeakSet handles cleanup automatically
-            pass
+            # Explicitly remove finished processes for deterministic cleanup
+            _cleanup_finished_processes()
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         click.echo(
             error(
@@ -281,7 +313,7 @@ def check_nb_cli_available():
         proc = subprocess.Popen(
             ["nb", "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
-        _subprocesses.add(proc)
+        _add_subprocess(proc)
         try:
             proc.communicate(timeout=10)
             return proc.returncode == 0
@@ -289,8 +321,8 @@ def check_nb_cli_available():
             proc.kill()
             return False
         finally:
-            # WeakSet handles cleanup automatically
-            pass
+            # Explicitly remove finished processes for deterministic cleanup
+            _cleanup_finished_processes()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
 
