@@ -12,6 +12,36 @@ from ..config import config_manager
 from ..utils.memory import Memory, MemoryModel, get_memory_data
 
 
+def _session_preview(memory: Memory) -> str:
+    """生成有长度限制的会话预览，不展示图片地址或完整工具调用。"""
+    if not memory.messages:
+        return "[空会话]"
+    content = memory.messages[0].content
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        text = " ".join(
+            part.text for part in content if getattr(part, "type", None) == "text"
+        )
+        if not text:
+            return "[多模态消息]"
+    else:
+        return "[工具调用]"
+    text = " ".join(text.split())
+    return text[:48] + ("..." if len(text) > 48 else "")
+
+
+def _session_index(data: MemoryModel, arg_list: list[str]) -> int | None:
+    """解析列表中显示的非负编号；无效、缺失或多余参数返回 None。"""
+    if len(arg_list) != 2 or not arg_list[1].isdecimal():
+        return None
+    try:
+        index = int(arg_list[1])
+    except ValueError:
+        return None
+    return index if 0 <= index < len(data.sessions) else None
+
+
 async def sessions(
     bot: Bot, event: MessageEvent, matcher: Matcher, args: Message = CommandArg()
 ):
@@ -25,24 +55,22 @@ async def sessions(
             await matcher.finish("没有历史会话")
         message_content = "历史会话\n"
         for index, msg in enumerate(data.sessions):
-            if msg.messages:
-                message_content += f"编号：{index}) ：{msg.messages[0].content[63:68]}... 时间：{datetime.fromtimestamp(msg.time).strftime('%Y-%m-%d %I:%M:%S %p')}\n"
+            message_content += f"编号：{index}) ：{_session_preview(msg)} 时间：{datetime.fromtimestamp(msg.time).strftime('%Y-%m-%d %I:%M:%S %p')}\n"
         await matcher.finish(message_content)
 
     async def set_session(
         data: MemoryModel, arg_list: list[str], event: MessageEvent
     ) -> None:
         """将当前会话覆盖为指定编号的会话"""
+        index = _session_index(data, arg_list)
+        if index is None:
+            await matcher.finish("请输入正确编号")
+            return
         try:
-            if len(arg_list) >= 2:
-                data.memory.messages = deepcopy(
-                    data.sessions[int(arg_list[1])].messages
-                )
-                data.timestamp = time.time()
-                await data.save(event)
-                await matcher.send("完成记忆覆盖。")
-            else:
-                await matcher.finish("请输入正确编号")
+            data.memory.messages = deepcopy(data.sessions[index].messages)
+            data.timestamp = time.time()
+            await data.save(event)
+            await matcher.send("完成记忆覆盖。")
         except NoneBotException as e:
             raise e
         except Exception:
@@ -52,12 +80,13 @@ async def sessions(
         data: MemoryModel, arg_list: list[str], event: MessageEvent
     ) -> None:
         """删除指定编号的会话"""
+        index = _session_index(data, arg_list)
+        if index is None:
+            await matcher.finish("请输入正确编号")
+            return
         try:
-            if len(arg_list) >= 2:
-                data.sessions.remove(data.sessions[int(arg_list[1])])
-                await data.save(event)
-            else:
-                await matcher.finish("请输入正确编号")
+            del data.sessions[index]
+            await data.save(event)
         except NoneBotException as e:
             raise e
         except Exception:
